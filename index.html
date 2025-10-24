@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manipulador de Imagens PHP (GD)</title>
+    <meta name="author" content="Onivaldo Miquelino">          
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: ui-sans-serif, system-ui; }
+        .image-preview { 
+            max-width: 100%; 
+            height: auto; 
+            max-height: 250px; 
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 flex justify-center">
+
+    <div class="w-full max-w-4xl bg-white p-8 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-center text-indigo-700 mb-6">Manipulador de Imagens PHP (GD)</h1>
+        
+        <form id="uploadForm" class="border-2 border-dashed border-gray-300 rounded-lg p-6 mb-8 text-center">
+            <input type="file" id="imageInput" name="image_file" accept="image/jpeg, image/png" class="hidden" required>
+            
+            <label for="imageInput" id="uploadLabel" class="cursor-pointer inline-block">
+                <span class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
+                    Selecionar Imagem (JPG/PNG)
+                </span>
+            </label>
+            
+            <p id="fileName" class="text-sm text-gray-500 mt-3">Nenhum arquivo selecionado.</p>
+            <div id="localPreview" class="mt-4 hidden justify-center">
+                <h3 class="text-sm font-semibold mb-2">Pré-visualização Local:</h3>
+                <img id="previewImage" src="" alt="Pré-visualização" class="image-preview border rounded-md p-1">
+            </div>
+
+            <button type="submit" id="submitBtn" class="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition" disabled>
+                Processar e Fazer Upload
+            </button>
+        </form>
+
+        <div id="resultsArea" class="hidden">
+            <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">Imagens Processadas</h2>
+            <div id="resultGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                </div>
+        </div>
+
+        <div id="statusMessage" class="hidden p-4 mt-6 rounded-md text-sm"></div>
+    </div>
+
+    <script>
+        // ******************************************************************************
+        // ATENÇÃO: Mude esta URL para o caminho correto do seu arquivo api.php no servidor
+        // ******************************************************************************
+        //const API_URL = 'http://localhost:8001/src/api.php'; 
+        const API_URL = 'api.php'; 
+
+        const uploadForm = document.getElementById('uploadForm');
+        const imageInput = document.getElementById('imageInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const fileNameDisplay = document.getElementById('fileName');
+        const localPreviewDiv = document.getElementById('localPreview');
+        const previewImage = document.getElementById('previewImage');
+        const resultsArea = document.getElementById('resultsArea');
+        const resultGrid = document.getElementById('resultGrid');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // --- Funções de Utilitário ---
+
+        function updateStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800', 'bg-yellow-100', 'text-yellow-800');
+            
+            if (type === 'error') {
+                statusMessage.classList.add('bg-red-100', 'text-red-800');
+            } else if (type === 'success') {
+                statusMessage.classList.add('bg-green-100', 'text-green-800');
+            } else { // Loading/Info
+                 statusMessage.classList.add('bg-yellow-100', 'text-yellow-800');
+            }
+            statusMessage.classList.remove('hidden');
+        }
+
+        function clearStatus() {
+            statusMessage.classList.add('hidden');
+        }
+
+        // --- Pré-visualização Local (Ótima UX!) ---
+
+        imageInput.addEventListener('change', (event) => {
+            clearStatus();
+            const file = event.target.files[0];
+
+            if (file) {
+                fileNameDisplay.textContent = `Arquivo selecionado: ${file.name}`;
+                submitBtn.disabled = false;
+                localPreviewDiv.classList.remove('hidden');
+                
+                // Cria uma URL local para pré-visualização
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImage.src = e.target.result;
+                };
+                reader.readAsDataURL(file); // Lê o arquivo como Data URL (base64)
+
+            } else {
+                fileNameDisplay.textContent = 'Nenhum arquivo selecionado.';
+                submitBtn.disabled = true;
+                localPreviewDiv.classList.add('hidden');
+                previewImage.src = '';
+            }
+        });
+
+        // --- Upload e Processamento (Frontend -> PHP) ---
+
+        uploadForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            const file = imageInput.files[0];
+            if (!file) return;
+
+            updateStatus('⏳ Enviando e processando imagem no PHP...', 'loading');
+            submitBtn.disabled = true;
+            resultsArea.classList.add('hidden');
+            
+            const formData = new FormData(uploadForm); // Coleta o arquivo do formulário
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData // Não precisa de Content-Type: multipart/form-data é automático
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    updateStatus('✅ Processamento concluído! Imagens salvas no servidor.', 'success');
+                    renderProcessedImages(result.paths);
+                } else {
+                    throw new Error(result.error || 'Erro desconhecido no processamento.');
+                }
+            } catch (error) {
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+                resultsArea.classList.add('hidden');
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+        
+        // --- Renderização dos Resultados ---
+
+        function renderProcessedImages(paths) {
+            resultGrid.innerHTML = '';
+            resultsArea.classList.remove('hidden');
+
+            const images = [
+                { title: 'Original Salva', path: paths.original, description: 'Cópia original da imagem.' },
+                { title: 'Redimensionada (Miniatura)', path: paths.thumbnail, description: `Largura: ${THUMBNAIL_WIDTH}px.` },
+                { title: 'Com Marca d\'Água', path: paths.watermark, description: 'Texto adicionado pelo PHP.' },
+            ];
+
+            images.forEach(img => {
+                const card = document.createElement('div');
+                card.className = 'p-4 border rounded-lg shadow-md bg-gray-50';
+                card.innerHTML = `
+                    <h3 class="font-bold text-gray-700 mb-2">${img.title}</h3>
+                    <img src="${img.path}" alt="${img.title}" class="w-full h-auto rounded-md mb-2 border">
+                    <p class="text-xs text-gray-500">${img.description}</p>
+                    <a href="${img.path}" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-sm mt-1 inline-block">Ver em Tamanho Real</a>
+                `;
+                resultGrid.appendChild(card);
+            });
+        }
+        
+        // A constante THUMBNAIL_WIDTH é definida no PHP, mas para exibição no frontend, 
+        // a definimos aqui, mas em um ambiente real, você a passaria do PHP.
+        const THUMBNAIL_WIDTH = 200; 
+
+    </script>
+</body>
+</html>
+    
